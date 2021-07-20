@@ -80,7 +80,15 @@ class SFagentens:
         # Decide on the prices for both the limit orders
         # and the order cancellations
         boa = (
-            np.random.binomial(1, 0.5, size=self.setup["Nagents"]) 
+            np.random.binomial(
+                np.ones(self.setup["Nagents"], dtype=int), 
+                (
+                    LOs * self.setup["LObidratio"]
+                    + COs * self.setup["CObidratio"]
+                    + MOs * self.setup["MObidratio"]
+                ), 
+                size=self.setup["Nagents"]
+            ) 
             == 1
         )
         prs = np.random.uniform(
