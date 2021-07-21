@@ -35,6 +35,14 @@ class SFagentens:
             dtype=int,
         )
         
+        # Draw each agents' preferred relative trading rate
+        # from a unit-mean gamma distribution
+        self.prefscales = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=self.setup["Nagents"],
+        )
+        
     def iterate(self, market_state_info : dict):
         """
         Iterate the ensemble a step forward in time by
@@ -53,16 +61,12 @@ class SFagentens:
         self.tau = np.random.exponential(1.0 / self.setup["HOrate"])
         HOr, LOr, MOr, COr = (
             self.tau * np.ones(self.setup["Nagents"]),
-            self.setup["LOrateperagent"] * np.ones(
-                self.setup["Nagents"]
-            ),
-            self.setup["MOrateperagent"] * np.ones(
-                self.setup["Nagents"]
-            ),
+            self.setup["LOrateperagent"] * self.prefscales,
+            self.setup["MOrateperagent"] * self.prefscales,
             (
                 (summembidLOs + summemaskLOs)
                 * self.setup["COrateperagent"]
-            ),
+            ) * self.prefscales,
         )
         totr = HOr + LOr + MOr + COr
         
@@ -170,12 +174,8 @@ class SFagentens:
         agamos = np.arange(0, self.setup["Nagents"], 1, dtype=int)[
             (boa==False) & MOs
         ]
-        nalos = np.sum(
-            (self.memaskLOs + self.asks)[market_state_info["askpt"]]
-        )
-        nblos = np.sum(
-            (self.membidLOs + self.bids)[market_state_info["bidpt"]]
-        )
+        nalos = np.sum(self.memaskLOs[market_state_info["askpt"]])
+        nblos = np.sum(self.membidLOs[market_state_info["bidpt"]])
         self.asks[
             market_state_info["askpt"], 
             np.random.choice(
