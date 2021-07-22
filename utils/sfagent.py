@@ -14,6 +14,22 @@ class SFagentens:
         """
         self.setup = setup
         
+        # Setup storage for exponential Hawkes kernel integral
+        self.hawkesintbids = 0.0
+        self.hawkesintasks = 0.0
+        
+        # Setup the each traders' exogeneous vs endogeneous 
+        # behaviour ratio and Hawkes kernel power if these
+        # have been set, else the default purely exogeneous
+        if "rbehaviours" in self.setup:
+            self.ris = self.setup["rbehaviours"]
+        else:
+            self.ris = np.ones(self.setup["Nagents"])
+        if "Hawkespow" in self.setup:
+            self.hawkespow = self.setup["Hawkespow"]
+        else:
+            self.hawkespow = np.zeros(self.setup["Nagents"])
+        
         # Setup the bid and ask decision properties
         self.bids = np.zeros(
             (self.setup["Nlattice"], self.setup["Nagents"]), 
@@ -37,7 +53,7 @@ class SFagentens:
         
         # Draw each agents' preferred relative trading rate
         # from a unit-mean gamma distribution
-        self.prefscales = np.random.gamma(
+        self.gs = np.random.gamma(
             self.setup["heterok"], 
             1.0 / self.setup["heterok"], 
             size=self.setup["Nagents"],
@@ -59,42 +75,55 @@ class SFagentens:
         
         # Consistent event rate computations
         self.tau = np.random.exponential(1.0 / self.setup["HOrate"])
-        HOr, LOr, MOr, COr = (
+        HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             self.tau * np.ones(self.setup["Nagents"]),
-            self.setup["LOrateperagent"] * self.prefscales,
-            self.setup["MOrateperagent"] * self.prefscales,
             (
-                (summembidLOs + summemaskLOs)
-                * self.setup["COrateperagent"]
-            ) * self.prefscales,
+                self.setup["LOrateperagentbid"] * self.gs * self.ris
+            ) + ((1.0 - self.ris) * self.hawkesintbids),
+            (
+                self.setup["LOrateperagentask"] * self.gs * self.ris
+            ) + ((1.0 - self.ris) * self.hawkesintasks),
+            (
+                self.setup["MOrateperagentbid"] * self.gs * self.ris
+            ) + ((1.0 - self.ris) * self.hawkesintbids),
+            (
+                self.setup["MOrateperagentask"] * self.gs * self.ris
+            ) + ((1.0 - self.ris) * self.hawkesintasks),
+            (summembidLOs * self.setup["COrateperagentbid"] * self.gs),
+            (summemaskLOs * self.setup["COrateperagentask"] * self.gs),
         )
-        totr = HOr + LOr + MOr + COr
+        totr = HOr + LOrb + LOra + MOrb + MOra + COrb + COra
         
         # Draw events from the uniform distribution
         # and apply the rejection inequalities to
         # assign the agents' decisions
         evs = np.random.uniform(size=self.setup["Nagents"])
-        LOs = (evs < LOr / totr)
-        MOs = (LOr / totr <= evs) & (evs < (LOr + MOr) / totr)
-        COs = (
-            ((LOr + MOr) / totr <= evs)
-            & (evs < (LOr + MOr + COr) / totr)
+        LOsb = (evs < LOrb / totr)
+        LOsa = (LOrb / totr <= evs) * (evs < (LOra + LOrb) / totr)
+        MOsb = (
+            ((LOra + LOrb) / totr <= evs) 
+            & (evs < (LOra + LOrb + MOrb) / totr)
+        )
+        MOsa = (
+            ((LOra + LOrb + MOrb) / totr <= evs) 
+            & (evs < (LOra + LOrb + MOrb + MOra) / totr)
+        )
+        COsb = (
+            ((LOra + LOrb + MOrb + MOra) / totr <= evs) 
+            & (evs < (LOra + LOrb + MOrb + MOra + COrb) / totr)
+        )
+        COsa = (
+            ((LOra + LOrb + MOrb + MOra + COrb) / totr <= evs) 
+            & (
+                evs < (
+                    LOra + LOrb + MOrb + MOra + COrb + COra
+                ) / totr
+            )
         )
         
         # Decide on the prices for both the limit orders
         # and the order cancellations
-        boa = (
-            np.random.binomial(
-                np.ones(self.setup["Nagents"], dtype=int), 
-                (
-                    LOs * self.setup["LObidratio"]
-                    + COs * self.setup["CObidratio"]
-                    + MOs * self.setup["MObidratio"]
-                ), 
-                size=self.setup["Nagents"]
-            ) 
-            == 1
-        )
+        boa = (LOsb | MOsb | COsb)
         prs = np.random.uniform(
             size=(self.setup["Nlattice"], self.setup["Nagents"])
         )
@@ -154,25 +183,25 @@ class SFagentens:
         self.bids[:], self.asks[:] = 0, 0
         self.bids[
             (
-                LObpts[boa & LOs], 
+                LObpts[LOsb], 
                 np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-                    boa & LOs
+                    LOsb
                 ],
             )
         ] += 1
         self.asks[
             (
-                LOapts[(boa==False) & LOs], 
+                LOapts[LOsa], 
                 np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-                    (boa==False) & LOs
+                    LOsa
                 ],
             )
         ] += 1
         agbmos = np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-            boa & MOs
+            MOsb
         ]
         agamos = np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-            (boa==False) & MOs
+            MOsa
         ]
         nalos = np.sum(self.memaskLOs[market_state_info["askpt"]])
         nblos = np.sum(self.membidLOs[market_state_info["bidpt"]])
@@ -211,20 +240,20 @@ class SFagentens:
         )
         cbids[
             (
-                CObpts[COs & boa], 
+                CObpts[COsb], 
                 np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-                    COs & boa
+                    COsb
                 ],
             )
-        ] += np.random.uniform(size=len(CObpts[COs & boa]))
+        ] += np.random.uniform(size=len(CObpts[COsb]))
         casks[
             (
-                COapts[COs & (boa==False)], 
+                COapts[COsa], 
                 np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-                    COs & (boa==False)
+                    COsa
                 ],
             )
-        ] += np.random.uniform(size=len(COapts[COs & (boa==False)]))
+        ] += np.random.uniform(size=len(COapts[COsa]))
         cbidssinds = np.argsort(cbids, axis=1)
         caskssinds = np.argsort(casks, axis=1)
         cbput = 0 + 1 * (
@@ -263,3 +292,13 @@ class SFagentens:
         # Update the agent-specific limit order memory
         self.membidLOs += self.bids
         self.memaskLOs += self.asks
+        
+        # Update the Hawkes kernel integrals
+        self.hawkesintbids = (
+            (self.hawkesintbids * np.exp(-self.hawkespow * self.tau)) + 
+            np.sum(self.bids * self.tau)
+        )
+        self.hawkesintasks = (
+            (self.hawkesintasks * np.exp(-self.hawkespow * self.tau)) + 
+            np.sum(self.asks * self.tau)
+        )
