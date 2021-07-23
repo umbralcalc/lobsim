@@ -35,6 +35,7 @@ class LOBsim:
                 + self.prices[self.setup["initbidpricetick"]]
             ) / 2.0,
             "prices" : self.prices,
+            "LOMOCOexogstate" : self.setup["initLOMOCO"],
         }
         self.bids = np.zeros(self.setup["Nlattice"], dtype=int)
         self.asks = np.zeros(self.setup["Nlattice"], dtype=int)
@@ -62,3 +63,11 @@ class LOBsim:
             self.prices[self.market_state_info["askpt"]] 
             + self.prices[self.market_state_info["bidpt"]]
         ) / 2.0
+        
+        # Update the exogenenous rates
+        self.market_state_info["LOMOCOexogstate"] = (
+            self.setup["LOMOCOfunc"](
+                self.market_state_info["LOMOCOexogstate"],
+                self.ae.tau,
+            )
+        )

@@ -75,22 +75,23 @@ class SFagentens:
         
         # Consistent event rate computations
         self.tau = np.random.exponential(1.0 / self.setup["HOrate"])
+        lb, la, mb, ma, cb, ca = market_state_info["LOMOCOexogstate"]
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             self.tau * np.ones(self.setup["Nagents"]),
             (
-                self.setup["LOrateperagentbid"] * self.gs * self.ris
+                lb * self.gs * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintbids),
             (
-                self.setup["LOrateperagentask"] * self.gs * self.ris
+                la * self.gs * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintasks),
             (
-                self.setup["MOrateperagentbid"] * self.gs * self.ris
+                mb * self.gs * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintbids),
             (
-                self.setup["MOrateperagentask"] * self.gs * self.ris
+                ma * self.gs * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintasks),
-            (summembidLOs * self.setup["COrateperagentbid"] * self.gs),
-            (summemaskLOs * self.setup["COrateperagentask"] * self.gs),
+            (summembidLOs * cb * self.gs),
+            (summemaskLOs * ca * self.gs),
         )
         totr = HOr + LOrb + LOra + MOrb + MOra + COrb + COra
         
