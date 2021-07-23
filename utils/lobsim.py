@@ -35,7 +35,6 @@ class LOBsim:
                 + self.prices[self.setup["initbidpricetick"]]
             ) / 2.0,
             "prices" : self.prices,
-            "LOMOCOexogstate" : self.setup["initLOMOCO"],
         }
         self.bids = np.zeros(self.setup["Nlattice"], dtype=int)
         self.asks = np.zeros(self.setup["Nlattice"], dtype=int)
@@ -53,21 +52,12 @@ class LOBsim:
         self.asks += np.sum(self.ae.asks, axis=1)
         
         # Recalculate the bid-ask spread and mid price
-        self.market_state_info["askpt"] = np.min(
-            np.nonzero(self.asks)
-        )
-        self.market_state_info["bidpt"] = np.max(
-            np.nonzero(self.bids)
-        )
+        nza, nzb = np.nonzero(self.asks), np.nonzero(self.bids)
+        if len(nza[0]) > 0:
+            self.market_state_info["askpt"] = np.min(nza)
+        if len(nzb[0]) > 0:
+            self.market_state_info["bidpt"] = np.max(nzb)
         self.market_state_info["midprice"] = (
             self.prices[self.market_state_info["askpt"]] 
             + self.prices[self.market_state_info["bidpt"]]
         ) / 2.0
-        
-        # Update the exogenenous rates
-        self.market_state_info["LOMOCOexogstate"] = (
-            self.setup["LOMOCOfunc"](
-                self.market_state_info["LOMOCOexogstate"],
-                self.ae.tau,
-            )
-        )

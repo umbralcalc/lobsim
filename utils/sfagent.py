@@ -51,9 +51,14 @@ class SFagentens:
             dtype=int,
         )
         
-        # Draw each agents' preferred relative trading rate
+        # Draw each agents' initial speculation on best positions 
         # from a unit-mean gamma distribution
-        self.gs = np.random.gamma(
+        self.gsbids = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=self.setup["Nagents"],
+        )
+        self.gsasks = np.random.gamma(
             self.setup["heterok"], 
             1.0 / self.setup["heterok"], 
             size=self.setup["Nagents"],
@@ -73,25 +78,37 @@ class SFagentens:
         summembidLOs = np.sum(self.membidLOs, axis=0)
         summemaskLOs = np.sum(self.memaskLOs, axis=0)
         
-        # Consistent event rate computations
-        self.tau = np.random.exponential(1.0 / self.setup["HOrate"])
-        lb, la, mb, ma, cb, ca = market_state_info["LOMOCOexogstate"]
+        # Consistent event rate computations with 
+        # global agent speculation taken into account
+        self.tau = np.random.exponential(1.0 / self.setup["meanHOrate"])
+        if (
+            np.random.uniform(size=1) < (
+                self.setup["meanspecrate"] 
+                / ((1.0/self.tau) + self.setup["meanspecrate"])
+            )
+        ):
+            self.gsbids = np.random.gamma(
+                self.setup["heterok"], 
+                1.0 / self.setup["heterok"], 
+                size=self.setup["Nagents"],
+            )
+            self.gsasks = np.random.gamma(
+                self.setup["heterok"], 
+                1.0 / self.setup["heterok"], 
+                size=self.setup["Nagents"],
+            )
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
-            self.tau * np.ones(self.setup["Nagents"]),
+            (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
+            self.setup["meanLOratebid"],
+            self.setup["meanLOrateask"],
             (
-                lb * self.gs * self.ris
+                self.setup["meanMOratebid"] * self.gsbids * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintbids),
             (
-                la * self.gs * self.ris
+                self.setup["meanMOrateask"] * self.gsasks * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintasks),
-            (
-                mb * self.gs * self.ris
-            ) + ((1.0 - self.ris) * self.hawkesintbids),
-            (
-                ma * self.gs * self.ris
-            ) + ((1.0 - self.ris) * self.hawkesintasks),
-            (summembidLOs * cb * self.gs),
-            (summemaskLOs * ca * self.gs),
+            summembidLOs * self.setup["meanCOratebid"],
+            summemaskLOs * self.setup["meanCOrateask"],
         )
         totr = HOr + LOrb + LOra + MOrb + MOra + COrb + COra
         
@@ -297,9 +314,15 @@ class SFagentens:
         # Update the Hawkes kernel integrals
         self.hawkesintbids = (
             (self.hawkesintbids * np.exp(-self.hawkespow * self.tau)) + 
-            np.sum(self.bids * self.tau)
+            (
+                np.sum(self.bids[market_state_info["askpt"]] * self.tau) 
+                / float(self.setup["Nagents"])
+            ) 
         )
         self.hawkesintasks = (
             (self.hawkesintasks * np.exp(-self.hawkespow * self.tau)) + 
-            np.sum(self.asks * self.tau)
+            (
+                np.sum(self.asks[market_state_info["bidpt"]] * self.tau) 
+                / float(self.setup["Nagents"])
+            )
         )
