@@ -99,13 +99,13 @@ class SFagentens:
             )
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
-            self.setup["meanLOratebid"],
-            self.setup["meanLOrateask"],
+            self.setup["meanLOratebid"] * self.gsbids,
+            self.setup["meanLOrateask"] * self.gsasks,
             (
-                self.setup["meanMOratebid"] * self.gsbids * self.ris
+                self.setup["meanMOratebid"] * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintbids),
             (
-                self.setup["meanMOrateask"] * self.gsasks * self.ris
+                self.setup["meanMOrateask"] * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintasks),
             summembidLOs * self.setup["meanCOratebid"],
             summemaskLOs * self.setup["meanCOrateask"],
