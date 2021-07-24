@@ -19,16 +19,9 @@ class SFagentens:
         self.hawkesintasks = 0.0
         
         # Setup the each traders' exogeneous vs endogeneous 
-        # behaviour ratio and Hawkes kernel power if these
-        # have been set, else the default purely exogeneous
-        if "rbehaviours" in self.setup:
-            self.ris = self.setup["rbehaviours"]
-        else:
-            self.ris = np.ones(self.setup["Nagents"])
-        if "Hawkespow" in self.setup:
-            self.hawkespow = self.setup["Hawkespow"]
-        else:
-            self.hawkespow = np.zeros(self.setup["Nagents"])
+        # behaviour ratio and Hawkes kernel power
+        self.ris = self.setup["rbehaviours"]
+        self.hawkespow = self.setup["Hawkespow"]
         
         # Setup the bid and ask decision properties
         self.bids = np.zeros(
@@ -79,33 +72,46 @@ class SFagentens:
         summemaskLOs = np.sum(self.memaskLOs, axis=0)
         
         # Consistent event rate computations with 
-        # global agent speculation taken into account
+        # agent speculation taken into account
         self.tau = np.random.exponential(1.0 / self.setup["meanHOrate"])
-        if (
-            np.random.uniform(size=1) < (
-                self.setup["meanspecrate"] 
-                / ((1.0/self.tau) + self.setup["meanspecrate"])
+        draws = np.random.uniform(size=(2, self.setup["Nagents"]))
+        specs = (
+            draws[0] < self.setup["meanspecrate"] / (
+                (1.0/self.tau) + self.setup["meanspecrate"]
             )
-        ):
-            self.gsbids = np.random.gamma(
-                self.setup["heterok"], 
-                1.0 / self.setup["heterok"], 
-                size=self.setup["Nagents"],
-            )
-            self.gsasks = np.random.gamma(
-                self.setup["heterok"], 
-                1.0 / self.setup["heterok"], 
-                size=self.setup["Nagents"],
-            )
+        )
+        nsps = int(np.sum(specs))
+        self.gsbids[specs] = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=nsps,
+        )
+        self.gsasks[specs] = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=nsps,
+        )
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
-            self.setup["meanLOratebid"] * self.gsbids,
-            self.setup["meanLOrateask"] * self.gsasks,
             (
-                self.setup["meanMOratebid"] * self.ris
+                self.setup["meanLOratebid"] 
+                * self.gsbids
+                * market_state_info["exotrend"]
+            ),
+            (
+                self.setup["meanLOrateask"] 
+                * self.gsasks
+                * (1.0 - market_state_info["exotrend"])
+            ),
+            (
+                self.setup["meanMOratebid"] 
+                * self.ris
+                * market_state_info["exotrend"]
             ) + ((1.0 - self.ris) * self.hawkesintbids),
             (
-                self.setup["meanMOrateask"] * self.ris
+                self.setup["meanMOrateask"] 
+                * self.ris 
+                * (1.0 - market_state_info["exotrend"])
             ) + ((1.0 - self.ris) * self.hawkesintasks),
             summembidLOs * self.setup["meanCOratebid"],
             summemaskLOs * self.setup["meanCOrateask"],
@@ -115,7 +121,7 @@ class SFagentens:
         # Draw events from the uniform distribution
         # and apply the rejection inequalities to
         # assign the agents' decisions
-        evs = np.random.uniform(size=self.setup["Nagents"])
+        evs = draws[1]
         LOsb = (evs < LOrb / totr)
         LOsa = (LOrb / totr <= evs) * (evs < (LOra + LOrb) / totr)
         MOsb = (
