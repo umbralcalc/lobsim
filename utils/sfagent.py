@@ -1,3 +1,4 @@
+import itertools
 import numpy as np
 
 class SFagentens:
@@ -15,8 +16,8 @@ class SFagentens:
         self.setup = setup
         
         # Setup storage for exponential Hawkes kernel integral
-        self.hawkesintbids = 0.0
-        self.hawkesintasks = 0.0
+        self.hawkesintbids = self.setup["meanMOratebid"]
+        self.hawkesintasks = self.setup["meanMOrateask"]
         
         # Setup the each traders' exogeneous vs endogeneous 
         # behaviour ratio and Hawkes kernel power
@@ -93,22 +94,22 @@ class SFagentens:
         )
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
-            (
+            2.0 * (
                 self.setup["meanLOratebid"] 
                 * self.gsbids
                 * market_state_info["exotrend"]
             ),
-            (
+            2.0 * (
                 self.setup["meanLOrateask"] 
                 * self.gsasks
                 * (1.0 - market_state_info["exotrend"])
             ),
-            (
+            2.0 * (
                 self.setup["meanMOratebid"] 
                 * self.ris
                 * market_state_info["exotrend"]
             ) + ((1.0 - self.ris) * self.hawkesintbids),
-            (
+            2.0 * (
                 self.setup["meanMOrateask"] 
                 * self.ris 
                 * (1.0 - market_state_info["exotrend"])
@@ -157,30 +158,23 @@ class SFagentens:
                 - market_state_info["prices"]
             ) * self.setup["LOdecay"]
         )
+        midpt = float(
+            market_state_info["bidpt"] + market_state_info["askpt"]
+        ) / 2.0
+        midptlow = int(np.floor(midpt))
+        midpthigh = int(np.ceil(midpt))
         LObpts = np.random.choice(
-            np.arange(
-                0, 
-                market_state_info["bidpt"] + 1, 
-                1, 
-                dtype=int,
-            ),
+            np.arange(0, midptlow + 1, 1, dtype=int),
             size=self.setup["Nagents"],
             p=(
-                dec[:market_state_info["bidpt"] + 1]
-                / np.sum(dec[:market_state_info["bidpt"] + 1])
+                dec[:midptlow + 1] / np.sum(dec[:midptlow + 1])
             ),
         )
         LOapts = np.random.choice(
-            np.arange(
-                market_state_info["askpt"], 
-                self.setup["Nlattice"], 
-                1, 
-                dtype=int,
-            ),
+            np.arange(midpthigh, self.setup["Nlattice"], 1, dtype=int),
             size=self.setup["Nagents"],
             p=(
-                dec[market_state_info["askpt"]:]
-                / np.sum(dec[market_state_info["askpt"]:])
+                dec[midpthigh:] / np.sum(dec[midpthigh:])
             ),
         )
         CObpts = np.argmax(
@@ -227,30 +221,82 @@ class SFagentens:
         agamos = np.arange(0, self.setup["Nagents"], 1, dtype=int)[
             MOsa
         ]
-        nalos = np.sum(self.memaskLOs[market_state_info["askpt"]])
-        nblos = np.sum(self.membidLOs[market_state_info["bidpt"]])
-        self.asks[
-            market_state_info["askpt"], 
-            np.random.choice(
-                agbmos, 
-                size=(
-                    nalos * (len(agbmos) > nalos) 
-                    + len(agbmos) * (len(agbmos) <= nalos)
-                ), 
-                replace=False,
-            ),
-        ] -= 1
-        self.bids[
+        nalosdist = np.sum(
+            self.memaskLOs[
+                midpthigh : market_state_info["askpt"] + 1
+            ],
+            axis=1,
+        )
+        nblosdist = np.sum(
+            self.membidLOs[
+                market_state_info["bidpt"] : midptlow + 1
+            ],
+            axis=1,
+        )
+        nalos = np.sum(nalosdist)
+        nblos = np.sum(nblosdist)
+        alst = np.arange(
+            midpthigh, 
+            market_state_info["askpt"] + 1, 
+            1, 
+            dtype=int,
+        )
+        askmopts = np.asarray(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [alst[i]] * nalosdist[i] 
+                        for i in range(0, len(nalosdist))
+                    ]
+                )
+            )
+        )
+        blst = np.arange(
             market_state_info["bidpt"], 
-            np.random.choice(
-                agamos, 
-                size=(
-                    nblos * (len(agamos) > nblos) 
-                    + len(agamos) * (len(agamos) <= nblos)
-                ), 
-                replace=False,
-            ),
-        ] -= 1
+            midptlow + 1, 
+            1, 
+            dtype=int,
+        )
+        bidmopts = np.asarray(
+            list(
+                itertools.chain.from_iterable(
+                    [
+                        [blst[i]] * nblosdist[i] 
+                        for i in range(0, len(nblosdist))
+                    ]
+                )
+            )
+        )
+        alen = (
+            nalos * (len(agbmos) > nalos) 
+            + len(agbmos) * (len(agbmos) <= nalos)
+        )
+        blen = (
+            nblos * (len(agamos) > nblos) 
+            + len(agamos) * (len(agamos) <= nblos)
+        )
+        if alen > 0:
+            self.asks[
+                (
+                    askmopts[:alen], 
+                    np.random.choice(
+                        agbmos, 
+                        size=alen, 
+                        replace=False,
+                    ),
+                )
+            ] -= 1
+        if blen > 0:
+            self.bids[
+                (
+                    bidmopts[-blen:], 
+                    np.random.choice(
+                        agamos, 
+                        size=blen, 
+                        replace=False,
+                    ),
+                )
+            ] -= 1
         
         # Pass the cancel-order decisions on to the output
         # properties if they haven't already been fulfilled
@@ -318,17 +364,19 @@ class SFagentens:
         self.memaskLOs += self.asks
         
         # Update the Hawkes kernel integrals
+        integb = np.sum(
+            self.asks[midpthigh : market_state_info["askpt"] + 1] 
+            * self.tau
+        )
+        intega = np.sum(
+            self.bids[market_state_info["bidpt"] : midptlow + 1] 
+            * self.tau
+        )
         self.hawkesintbids = (
-            (self.hawkesintbids * np.exp(-self.hawkespow * self.tau)) + 
-            (
-                np.sum(self.bids[market_state_info["askpt"]] * self.tau) 
-                / float(self.setup["Nagents"])
-            ) 
+            (self.hawkesintbids * np.exp(-self.hawkespow * self.tau))
+            - integb * (integb < 0)
         )
         self.hawkesintasks = (
-            (self.hawkesintasks * np.exp(-self.hawkespow * self.tau)) + 
-            (
-                np.sum(self.asks[market_state_info["bidpt"]] * self.tau) 
-                / float(self.setup["Nagents"])
-            )
+            (self.hawkesintasks * np.exp(-self.hawkespow * self.tau))
+            - intega * (intega < 0)
         )
