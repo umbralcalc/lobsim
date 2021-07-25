@@ -35,7 +35,6 @@ class LOBsim:
                 + self.prices[self.setup["initbidpricetick"]]
             ) / 2.0,
             "prices" : self.prices,
-            "exotrend" : self.setup["initexotrend"],
         }
         self.bids = np.zeros(self.setup["Nlattice"], dtype=int)
         self.asks = np.zeros(self.setup["Nlattice"], dtype=int)
@@ -62,9 +61,3 @@ class LOBsim:
             self.prices[self.market_state_info["askpt"]] 
             + self.prices[self.market_state_info["bidpt"]]
         ) / 2.0
-        
-        # Update the exogenous limit order trend in time
-        self.market_state_info["exotrend"] = self.setup["exotrendfunc"](
-            self.market_state_info["exotrend"],
-            self.time,
-        )

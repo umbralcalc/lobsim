@@ -19,8 +19,8 @@ class SFagentens:
         self.hawkesintbids = self.setup["meanMOratebid"]
         self.hawkesintasks = self.setup["meanMOrateask"]
         
-        # Setup the each traders' exogeneous vs endogeneous 
-        # behaviour ratio and Hawkes kernel power
+        # Setup the endogeneous memory behaviour 
+        # via the Hawkes kernel power
         self.ris = self.setup["rbehaviours"]
         self.hawkespow = self.setup["Hawkespow"]
         
@@ -94,25 +94,13 @@ class SFagentens:
         )
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
-            2.0 * (
-                self.setup["meanLOratebid"] 
-                * self.gsbids
-                * market_state_info["exotrend"]
-            ),
-            2.0 * (
-                self.setup["meanLOrateask"] 
-                * self.gsasks
-                * (1.0 - market_state_info["exotrend"])
-            ),
-            2.0 * (
-                self.setup["meanMOratebid"] 
-                * self.ris
-                * market_state_info["exotrend"]
+            self.setup["meanLOratebid"] * self.gsbids,
+            self.setup["meanLOrateask"] * self.gsasks,
+            (
+                self.setup["meanMOratebid"] * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintbids),
-            2.0 * (
-                self.setup["meanMOrateask"] 
-                * self.ris 
-                * (1.0 - market_state_info["exotrend"])
+            (
+                self.setup["meanMOrateask"] * self.ris
             ) + ((1.0 - self.ris) * self.hawkesintasks),
             summembidLOs * self.setup["meanCOratebid"],
             summemaskLOs * self.setup["meanCOrateask"],
