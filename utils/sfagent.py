@@ -15,15 +15,6 @@ class SFagentens:
         """
         self.setup = setup
         
-        # Setup storage for exponential Hawkes kernel integral
-        self.hawkesintbids = self.setup["meanMOratebid"]
-        self.hawkesintasks = self.setup["meanMOrateask"]
-        
-        # Setup the endogeneous memory behaviour 
-        # via the Hawkes kernel power
-        self.ris = self.setup["rbehaviours"]
-        self.hawkespow = self.setup["Hawkespow"]
-        
         # Setup the bid and ask decision properties
         self.bids = np.zeros(
             (self.setup["Nlattice"], self.setup["Nagents"]), 
@@ -96,12 +87,8 @@ class SFagentens:
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
             self.setup["meanLOratebid"] * self.gsbids,
             self.setup["meanLOrateask"] * self.gsasks,
-            (
-                self.setup["meanMOratebid"] * self.ris
-            ) + ((1.0 - self.ris) * self.hawkesintbids),
-            (
-                self.setup["meanMOrateask"] * self.ris
-            ) + ((1.0 - self.ris) * self.hawkesintasks),
+            self.setup["meanMOratebid"],
+            self.setup["meanMOrateask"],
             summembidLOs * self.setup["meanCOratebid"],
             summemaskLOs * self.setup["meanCOrateask"],
         )
@@ -350,21 +337,4 @@ class SFagentens:
         # Update the agent-specific limit order memory
         self.membidLOs += self.bids
         self.memaskLOs += self.asks
-        
-        # Update the Hawkes kernel integrals
-        integb = np.sum(
-            self.asks[midpthigh : market_state_info["askpt"] + 1] 
-            * self.tau
-        )
-        intega = np.sum(
-            self.bids[market_state_info["bidpt"] : midptlow + 1] 
-            * self.tau
-        )
-        self.hawkesintbids = (
-            (self.hawkesintbids * np.exp(-self.hawkespow * self.tau))
-            - integb * (integb < 0)
-        )
-        self.hawkesintasks = (
-            (self.hawkesintasks * np.exp(-self.hawkespow * self.tau))
-            - intega * (intega < 0)
-        )
+    
