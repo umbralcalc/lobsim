@@ -38,12 +38,22 @@ class SFagentens:
         
         # Draw each agents' initial speculation on best positions 
         # from a unit-mean gamma distribution
-        self.gsbids = np.random.gamma(
+        self.logsbids = np.random.gamma(
             self.setup["heterok"], 
             1.0 / self.setup["heterok"], 
             size=self.setup["Nagents"],
         )
-        self.gsasks = np.random.gamma(
+        self.logsasks = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=self.setup["Nagents"],
+        )
+        self.mogsbids = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=self.setup["Nagents"],
+        )
+        self.mogsasks = np.random.gamma(
             self.setup["heterok"], 
             1.0 / self.setup["heterok"], 
             size=self.setup["Nagents"],
@@ -73,22 +83,21 @@ class SFagentens:
             )
         )
         nsps = int(np.sum(specs))
-        self.gsbids[specs] = np.random.gamma(
+        gdraws = np.random.gamma(
             self.setup["heterok"], 
             1.0 / self.setup["heterok"], 
-            size=nsps,
+            size=(4, nsps),
         )
-        self.gsasks[specs] = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=nsps,
-        )
+        self.logsbids[specs] = gdraws[0]
+        self.logsasks[specs] = gdraws[1]
+        self.mogsbids[specs] = gdraws[2]
+        self.mogsasks[specs] = gdraws[3]
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
-            self.setup["meanLOratebid"] * self.gsbids,
-            self.setup["meanLOrateask"] * self.gsasks,
-            self.setup["meanMOratebid"],
-            self.setup["meanMOrateask"],
+            self.setup["meanLOratebid"] * self.logsbids,
+            self.setup["meanLOrateask"] * self.logsasks,
+            self.setup["meanMOratebid"] * self.mogsbids,
+            self.setup["meanMOrateask"] * self.mogsasks,
             summembidLOs * self.setup["meanCOratebid"],
             summemaskLOs * self.setup["meanCOrateask"],
         )
