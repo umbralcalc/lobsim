@@ -18,7 +18,6 @@ class LOBsim:
         """
         self.setup = setup
         self.time = 0.0
-        self.ae = agentens(setup)
         
         # Setup the LOB prices and the market order integer ticks
         self.prices = np.arange(
@@ -38,6 +37,10 @@ class LOBsim:
         }
         self.bids = np.zeros(self.setup["Nlattice"], dtype=int)
         self.asks = np.zeros(self.setup["Nlattice"], dtype=int)
+        self.ae = agentens(
+            setup,
+            current_market_state_info=self.market_state_info,
+        )
         
     def iterate(self):
         """Iterate the book volumes (and the ensemble of agents) 

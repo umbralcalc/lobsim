@@ -1,7 +1,7 @@
 import itertools
 import numpy as np
 
-class SFagentens:
+class reagentens:
     
     def __init__(self, setup : dict, **kwargs):
         """
@@ -11,6 +11,11 @@ class SFagentens:
         Args:
         setup
             A dictionary of setup parameters.
+            
+        Keywords:
+        current_market_state_info
+            A dictionary of current market state info from
+            the LOB class.
         
         """
         self.setup = setup
@@ -34,6 +39,23 @@ class SFagentens:
         self.memaskLOs = np.zeros(
             (self.setup["Nlattice"], self.setup["Nagents"]),
             dtype=int,
+        )
+        
+        # Setup storage of past market order volume differences, rate
+        # coefficients and memory lengths for the reactionary agents
+        self.pastMOdiffmems = 0.0
+        self.reactbid = np.ones(self.setup["Nagents"])
+        self.reactask = np.ones(self.setup["Nagents"])
+        self.MOdiffmemrates = np.random.gamma(
+            (
+                self.setup["reactratesmean"] ** 2.0
+                / np.abs(
+                    self.setup["reactratesvar"]
+                    - self.setup["reactratesmean"]
+                )
+            ), 
+            self.setup["reactratesmean"] / self.setup["reactratesvar"], 
+            size=self.setup["Nreactagents"],
         )
         
         # Draw each agents' initial speculation on best positions 
@@ -69,6 +91,13 @@ class SFagentens:
             A dictionary of current market state info.
             
         """
+        
+        # Set the reactions of agents in response to their
+        # respective memories' of mid price movements
+        rc = np.exp(self.setup["reactpow"] * self.pastMOdiffmems)
+        self.reactbid[:self.setup["Nreactagents"]] = rc
+        self.reactask[:self.setup["Nreactagents"]] = 1.0 / rc
+        
         # Sum over past limit orders by agent
         summembidLOs = np.sum(self.membidLOs, axis=0)
         summemaskLOs = np.sum(self.memaskLOs, axis=0)
@@ -96,10 +125,10 @@ class SFagentens:
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
             self.setup["meanLOratebid"] * self.logsbids,
             self.setup["meanLOrateask"] * self.logsasks,
-            self.setup["meanMOratebid"] * self.mogsbids,
-            self.setup["meanMOrateask"] * self.mogsasks,
-            summembidLOs * self.setup["meanCOratebid"],
-            summemaskLOs * self.setup["meanCOrateask"],
+            self.setup["meanMOratebid"] * self.mogsbids * self.reactbid,
+            self.setup["meanMOrateask"] * self.mogsasks * self.reactask,
+            summembidLOs * self.setup["meanCOratebid"] * self.reactbid,
+            summemaskLOs * self.setup["meanCOrateask"] * self.reactask,
         )
         totr = HOr + LOrb + LOra + MOrb + MOra + COrb + COra
         
@@ -346,4 +375,12 @@ class SFagentens:
         # Update the agent-specific limit order memory
         self.membidLOs += self.bids
         self.memaskLOs += self.asks
-    
+        
+        # Update the memory of the market order volume differences 
+        # for the reactionary agents
+        self.pastMOdiffmems = (
+            np.sum(self.bids[market_state_info["bidpt"] : midptlow + 1])
+            - np.sum(self.asks[midpthigh : market_state_info["askpt"] + 1])
+        ) * self.tau + (
+            self.pastMOdiffmems * np.exp(-self.MOdiffmemrates * self.tau)
+        )
