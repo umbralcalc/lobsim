@@ -44,6 +44,8 @@ class reagentens:
         # Setup storage of past market order volume differences, rate
         # coefficients and memory lengths for the reactionary agents
         self.pastMOdiffmems = 0.0
+        self.reactmsk = np.ones(self.setup["Nagents"], dtype=bool)
+        self.reactmsk[:self.setup["Nreactagents"]] = False
         self.reactbid = np.ones(self.setup["Nagents"])
         self.reactask = np.ones(self.setup["Nagents"])
         self.MOdiffmemrates = np.random.gamma(
@@ -80,6 +82,8 @@ class reagentens:
             1.0 / self.setup["heterok"], 
             size=self.setup["Nagents"],
         )
+        self.mogsbids[:self.setup["Nreactagents"]] = 1.0
+        self.mogsasks[:self.setup["Nreactagents"]] = 1.0
         
     def iterate(self, market_state_info : dict):
         """
@@ -93,10 +97,13 @@ class reagentens:
         """
         
         # Set the reactions of agents in response to their
-        # respective memories' of mid price movements
-        rc = np.exp(self.setup["reactpow"] * self.pastMOdiffmems)
-        self.reactbid[:self.setup["Nreactagents"]] = rc
-        self.reactask[:self.setup["Nreactagents"]] = 1.0 / rc
+        # respective memories' of market order volume differences
+        self.reactbid[:self.setup["Nreactagents"]] = (
+            (self.pastMOdiffmems >= 0.0) * self.setup["reactamp"]
+        )
+        self.reactask[:self.setup["Nreactagents"]] = (
+            (self.pastMOdiffmems <= 0.0) * self.setup["reactamp"]
+        )
         
         # Sum over past limit orders by agent
         summembidLOs = np.sum(self.membidLOs, axis=0)
@@ -119,8 +126,14 @@ class reagentens:
         )
         self.logsbids[specs] = gdraws[0]
         self.logsasks[specs] = gdraws[1]
-        self.mogsbids[specs] = gdraws[2]
-        self.mogsasks[specs] = gdraws[3]
+        self.mogsbids[specs] = (
+            (1.0 * (self.reactmsk[specs]==False)) 
+            + (gdraws[2] * self.reactmsk[specs])
+        )
+        self.mogsasks[specs] = (
+            (1.0 * (self.reactmsk[specs]==False)) 
+            + (gdraws[3] * self.reactmsk[specs])
+        )
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
             self.setup["meanLOratebid"] * self.logsbids,
