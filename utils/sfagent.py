@@ -58,6 +58,53 @@ class SFagentens:
             1.0 / self.setup["heterok"], 
             size=self.setup["Nagents"],
         )
+        self.cogsbids = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=self.setup["Nagents"],
+        )
+        self.cogsasks = np.random.gamma(
+            self.setup["heterok"], 
+            1.0 / self.setup["heterok"], 
+            size=self.setup["Nagents"],
+        )
+        
+        # Draw each agent's initial trade signs (can be -1, 0 or 1)
+        # and the distribution of trade sign switch rates
+        self.epss = np.zeros(self.setup["Nagents"])
+        self.swtchrs = (
+            np.random.binomial(
+                1, 
+                self.setup["fracswitchers"], 
+                size=self.setup["Nagents"]
+            ) == 1
+        )
+        self.nswtchrs = len(self.epss[self.swtchrs])
+        posit = np.random.binomial(1, 0.5, size=self.nswtchrs) == 1
+        self.epss[self.swtchrs] = (1.0 * posit) - (1.0 * (posit==False))
+        num_tscs = int(
+            self.setup["switchmemcutofftime"] * self.setup["meanHOrate"]
+        )
+        tscs = (
+            (1.0 / self.setup["meanHOrate"]) 
+            * np.arange(1.0, num_tscs + 1, 1.0)
+        )
+        sa = np.tensordot(
+            np.ones(num_tscs + 1),
+            np.random.uniform(size=self.nswtchrs),
+            axes=0,
+        )
+        cmp = np.cumsum(tscs ** (- self.setup["switchmempowerlaw"]))
+        pmtscs = np.tensordot(
+            np.append(np.zeros(1), cmp / cmp[-1]),
+            np.ones(self.nswtchrs),
+            axes=0,
+        )
+        self.switch_scales = np.tensordot(
+            tscs,
+            np.ones(self.nswtchrs),
+            axes=0,
+        )[(pmtscs[:-1] <= sa[:-1]) & (sa[1:] < pmtscs[1:])]
         
     def iterate(self, market_state_info : dict):
         """
@@ -76,37 +123,31 @@ class SFagentens:
         # Consistent event rate computations with 
         # agent speculation taken into account
         self.tau = np.random.exponential(1.0 / self.setup["meanHOrate"])
-        draws = np.random.uniform(size=(2, self.setup["Nagents"]))
-        specs = (
-            draws[0] < self.setup["meanspecrate"] / (
-                (1.0/self.tau) + self.setup["meanspecrate"]
+        draws = np.random.uniform(size=self.nswtchrs)
+        switches = (
+            draws[0] < (1.0 / self.switch_scales) / (
+                (1.0/self.tau) + (1.0 / self.switch_scales)
             )
         )
-        nsps = int(np.sum(specs))
-        gdraws = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=(4, nsps),
+        self.epss[self.swtchrs][switches] = (
+            1.0 * (self.epss[self.swtchrs][switches] == -1.0)
+            - 1.0 * (self.epss[self.swtchrs][switches] == 1.0)
         )
-        self.logsbids[specs] = gdraws[0]
-        self.logsasks[specs] = gdraws[1]
-        self.mogsbids[specs] = gdraws[2]
-        self.mogsasks[specs] = gdraws[3]
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
             self.setup["meanLOratebid"] * self.logsbids,
             self.setup["meanLOrateask"] * self.logsasks,
-            self.setup["meanMOratebid"] * self.mogsbids,
-            self.setup["meanMOrateask"] * self.mogsasks,
-            summembidLOs * self.setup["meanCOratebid"],
-            summemaskLOs * self.setup["meanCOrateask"],
+            self.setup["meanMOratebid"] * (1.0 + self.epss) * self.mogsbids,
+            self.setup["meanMOrateask"] * (1.0 - self.epss) * self.mogsasks,
+            summembidLOs * self.setup["meanCOratebid"] * self.cogsbids,
+            summemaskLOs * self.setup["meanCOrateask"] * self.cogsasks,
         )
         totr = HOr + LOrb + LOra + MOrb + MOra + COrb + COra
         
         # Draw events from the uniform distribution
         # and apply the rejection inequalities to
         # assign the agents' decisions
-        evs = draws[1]
+        evs = np.random.uniform(size=self.setup["Nagents"])
         LOsb = (evs < LOrb / totr)
         LOsa = (LOrb / totr <= evs) * (evs < (LOra + LOrb) / totr)
         MOsb = (
