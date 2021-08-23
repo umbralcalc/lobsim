@@ -1,7 +1,7 @@
 import itertools
 import numpy as np
 
-class SFagentens:
+class agentens:
     
     def __init__(self, setup : dict, **kwargs):
         """
@@ -36,38 +36,33 @@ class SFagentens:
             dtype=int,
         )
         
+        # Draw the initial latent market order volumes and signs
+        self.latmovs = (
+            np.random.pareto(
+                self.setup["MOvolpower"],
+                size=self.setup["Nagents"],
+            ) + 1.0
+        ).astype(int)
+        self.latmovs[
+            self.latMOvs > self.setup["MOvolcutoff"]
+        ] = self.setup["MOvolcutoff"]
+        self.mosigns = (
+            1.0 - (2.0 * np.random.binomial(1, 0.5, size=self.setup["Nagents"]))
+        )
+        
         # Draw each agents' initial speculation on best positions 
         # from a unit-mean gamma distribution
-        self.logsbids = np.random.gamma(
+        gms = np.random.gamma(
             self.setup["heterok"], 
             1.0 / self.setup["heterok"], 
-            size=self.setup["Nagents"],
+            size=(6, self.setup["Nagents"]),
         )
-        self.logsasks = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=self.setup["Nagents"],
-        )
-        self.mogsbids = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=self.setup["Nagents"],
-        )
-        self.mogsasks = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=self.setup["Nagents"],
-        )
-        self.cogsbids = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=self.setup["Nagents"],
-        )
-        self.cogsasks = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=self.setup["Nagents"],
-        )
+        self.logsbids = np.ones(self.setup["Nagents"])
+        self.logsasks = np.ones(self.setup["Nagents"])
+        self.mogsbids = np.ones(self.setup["Nagents"])
+        self.mogsasks = np.ones(self.setup["Nagents"])
+        self.cogsbids = np.ones(self.setup["Nagents"])
+        self.cogsasks = np.ones(self.setup["Nagents"])
         
     def iterate(self, market_state_info : dict):
         """
@@ -90,8 +85,8 @@ class SFagentens:
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
             self.setup["meanLOratebid"] * self.logsbids,
             self.setup["meanLOrateask"] * self.logsasks,
-            self.setup["meanMOratebid"] * self.mogsbids,
-            self.setup["meanMOrateask"] * self.mogsasks,
+            self.setup["meanMOratebid"] * self.mogsbids * (1.0 + self.mosigns),
+            self.setup["meanMOrateask"] * self.mogsasks * (1.0 - self.mosigns),
             summembidLOs * self.setup["meanCOratebid"] * self.cogsbids,
             summemaskLOs * self.setup["meanCOrateask"] * self.cogsasks,
         )
@@ -264,6 +259,17 @@ class SFagentens:
                     ),
                 )
             ] -= 1
+            self.latmovs[] -= 1
+            nchanges = int(np.sum(self.latmovs==0))
+            self.mosigns[self.latmovs==0] = (
+                1.0 - (2.0 * np.random.binomial(1, 0.5, size=nchanges))
+            )
+            self.latmovs[self.latmovs==0] = (
+                np.random.pareto(
+                    self.setup["MOvolpower"],
+                    size=nchanges,
+                ) + 1.0
+            ).astype(int)
         if blen > 0:
             self.bids[
                 (
