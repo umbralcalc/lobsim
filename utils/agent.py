@@ -37,6 +37,7 @@ class agentens:
         )
         
         # Draw the initial latent market order volumes and signs
+        # from the specified Pareto distribution
         self.latmovs = (
             np.random.pareto(
                 self.setup["MOvolpower"],
@@ -44,10 +45,30 @@ class agentens:
             ) + 1.0
         ).astype(int)
         self.latmovs[
-            self.latMOvs > self.setup["MOvolcutoff"]
+            self.latmovs > self.setup["MOvolcutoff"]
         ] = self.setup["MOvolcutoff"]
         self.mosigns = (
-            1.0 - (2.0 * np.random.binomial(1, 0.5, size=self.setup["Nagents"]))
+            1.0 - (
+                2.0  
+                * np.random.binomial(
+                    1, 
+                    0.5, 
+                    size=self.setup["Nagents"]
+                )
+            )
+        )
+        
+        # Draw the trader agressiveness factors for limit and
+        # market orders from a beta distribution 
+        self.moaggrf = np.random.beta(
+            self.setup["MOaggrA"], 
+            self.setup["MOaggrB"],
+            size=self.setup["Nagents"],
+        )
+        self.loaggrf = np.random.beta(
+            self.setup["LOaggrA"], 
+            self.setup["LOaggrB"],
+            size=self.setup["Nagents"],
         )
         
         # Draw each agents' initial speculation on best positions 
@@ -188,81 +209,44 @@ class agentens:
                 ],
             )
         ] += 1
-        agbmos = np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-            MOsb
-        ]
-        agamos = np.arange(0, self.setup["Nagents"], 1, dtype=int)[
-            MOsa
-        ]
-        nalosdist = np.sum(
-            self.memaskLOs[
-                midpthigh : market_state_info["askpt"] + 1
-            ],
-            axis=1,
-        )
-        nblosdist = np.sum(
-            self.membidLOs[
-                market_state_info["bidpt"] : midptlow + 1
-            ],
-            axis=1,
-        )
-        nalos = np.sum(nalosdist)
-        nblos = np.sum(nblosdist)
-        alst = np.arange(
-            midpthigh, 
-            market_state_info["askpt"] + 1, 
-            1, 
-            dtype=int,
-        )
-        askmopts = np.asarray(
-            list(
-                itertools.chain.from_iterable(
-                    [
-                        [alst[i]] * nalosdist[i] 
-                        for i in range(0, len(nalosdist))
-                    ]
-                )
-            )
-        )
-        blst = np.arange(
-            market_state_info["bidpt"], 
-            midptlow + 1, 
-            1, 
-            dtype=int,
-        )
-        bidmopts = np.asarray(
-            list(
-                itertools.chain.from_iterable(
-                    [
-                        [blst[i]] * nblosdist[i] 
-                        for i in range(0, len(nblosdist))
-                    ]
-                )
-            )
-        )
-        alen = (
-            nalos * (len(agbmos) > nalos) 
-            + len(agbmos) * (len(agbmos) <= nalos)
-        )
-        blen = (
-            nblos * (len(agamos) > nblos) 
-            + len(agamos) * (len(agamos) <= nblos)
-        )
+        nMOsa = int(np.sum(MOsa))
+        nMOsb = int(np.sum(MOsb))
+        nalos = np.sum(self.memaskLOs[market_state_info["askpt"]] > 0)
+        nblos = np.sum(self.membidLOs[market_state_info["bidpt"]] > 0)
+        alen = nalos * (nMOsb > nalos) + nMOsb * (nMOsb <= nalos)
+        blen = nblos * (nMOsa > nblos) + nMOsa * (nMOsa <= nblos)
         if alen > 0:
-            self.asks[
-                (
-                    askmopts[:alen], 
-                    np.random.choice(
-                        agbmos, 
-                        size=alen, 
-                        replace=False,
-                    ),
+            agalos = np.random.choice(
+                np.arange(0, self.setup["Nagents"], 1, dtype=int),
+                size=alen,
+                replace=False,
+                p=(
+                    self.memaskLOs[market_state_info["askpt"]]
+                    / np.sum(
+                        self.memaskLOs[market_state_info["askpt"]]
+                    )
                 )
-            ] -= 1
-            self.latmovs[] -= 1
+            )
+            agamos = np.random.choice(
+                np.arange(0, self.setup["Nagents"], 1, dtype=int)[MOsb],
+                size=alen,
+                replace=False,
+            )
+            exsize = (
+                self.moaggrf[agamos] 
+                * self.memaskLOs[market_state_info["askpt"]][agalos]
+            ).astype(int)
+            exsize[exsize==0] = 1
+            exsize[exsize > self.latmovs[agamos]] = self.latmovs[agamos][
+                exsize > self.latmovs[agamos]
+            ]
+            self.asks[market_state_info["askpt"]][agalos] -= exsize
+            self.latmovs[agamos] -= exsize
             nchanges = int(np.sum(self.latmovs==0))
             self.mosigns[self.latmovs==0] = (
-                1.0 - (2.0 * np.random.binomial(1, 0.5, size=nchanges))
+                1.0 - (
+                    2.0 * np.random.binomial(1, 0.5, size=nchanges)
+                )
             )
             self.latmovs[self.latmovs==0] = (
                 np.random.pareto(
@@ -270,17 +254,51 @@ class agentens:
                     size=nchanges,
                 ) + 1.0
             ).astype(int)
+            self.latmovs[
+                self.latmovs > self.setup["MOvolcutoff"]
+            ] = self.setup["MOvolcutoff"]
         if blen > 0:
-            self.bids[
-                (
-                    bidmopts[-blen:], 
-                    np.random.choice(
-                        agamos, 
-                        size=blen, 
-                        replace=False,
-                    ),
+            agblos = np.random.choice(
+                np.arange(0, self.setup["Nagents"], 1, dtype=int),
+                size=blen,
+                replace=False,
+                p=(
+                    self.membidLOs[market_state_info["bidpt"]]
+                    / np.sum(
+                        self.membidLOs[market_state_info["bidpt"]]
+                    )
                 )
-            ] -= 1
+            )
+            agbmos = np.random.choice(
+                np.arange(0, self.setup["Nagents"], 1, dtype=int)[MOsa],
+                size=blen,
+                replace=False,
+            )
+            exsize = (
+                self.moaggrf[agbmos]
+                * self.membidLOs[market_state_info["bidpt"]][agblos]
+            ).astype(int)
+            exsize[exsize==0] = 1
+            exsize[exsize > self.latmovs[agbmos]] = self.latmovs[agbmos][
+                exsize > self.latmovs[agbmos]
+            ]
+            self.bids[market_state_info["bidpt"]][agblos] -= exsize
+            self.latmovs[agbmos] -= exsize
+            nchanges = int(np.sum(self.latmovs==0))
+            self.mosigns[self.latmovs==0] = (
+                1.0 - (
+                    2.0 * np.random.binomial(1, 0.5, size=nchanges)
+                )
+            )
+            self.latmovs[self.latmovs==0] = (
+                np.random.pareto(
+                    self.setup["MOvolpower"],
+                    size=nchanges,
+                ) + 1.0
+            ).astype(int)
+            self.latmovs[
+                self.latmovs > self.setup["MOvolcutoff"]
+            ] = self.setup["MOvolcutoff"]
         
         # Pass the cancel-order decisions on to the output
         # properties if they haven't already been fulfilled
