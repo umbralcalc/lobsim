@@ -211,37 +211,39 @@ class agentens:
         ] += 1
         nMOsa = int(np.sum(MOsa))
         nMOsb = int(np.sum(MOsb))
-        nalos = np.sum(self.memaskLOs[market_state_info["askpt"]] > 0)
-        nblos = np.sum(self.membidLOs[market_state_info["bidpt"]] > 0)
-        alen = nalos * (nMOsb > nalos) + nMOsb * (nMOsb <= nalos)
-        blen = nblos * (nMOsa > nblos) + nMOsa * (nMOsa <= nblos)
-        if alen > 0:
-            agalos = np.random.choice(
-                np.arange(0, self.setup["Nagents"], 1, dtype=int),
-                size=alen,
-                replace=False,
-                p=(
-                    self.memaskLOs[market_state_info["askpt"]]
-                    / np.sum(
-                        self.memaskLOs[market_state_info["askpt"]]
-                    )
+        if nMOsb > 0:
+            naglos = np.sum(self.memaskLOs[market_state_info["askpt"]])
+            aglos = np.random.permutation(
+                np.repeat(
+                    np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                        self.memaskLOs[market_state_info["askpt"]] > 0
+                    ],
+                    self.memaskLOs[market_state_info["askpt"]][
+                        self.memaskLOs[market_state_info["askpt"]] > 0
+                    ]
                 )
             )
-            agamos = np.random.choice(
+            agmos = np.random.choice(
                 np.arange(0, self.setup["Nagents"], 1, dtype=int)[MOsb],
-                size=alen,
+                size=nMOsb,
                 replace=False,
             )
-            exsize = (
-                self.moaggrf[agamos] 
-                * self.memaskLOs[market_state_info["askpt"]][agalos]
-            ).astype(int)
+            exsize = (self.moaggrf[agmos] * naglos).astype(int)
             exsize[exsize==0] = 1
-            exsize[exsize > self.latmovs[agamos]] = self.latmovs[agamos][
-                exsize > self.latmovs[agamos]
+            exsize[exsize > self.latmovs[agmos]] = self.latmovs[agmos][
+                exsize > self.latmovs[agmos]
             ]
-            self.asks[market_state_info["askpt"]][agalos] -= exsize
-            self.latmovs[agamos] -= exsize
+            cexsize = np.cumsum(exsize)
+            fullyexmask = (cexsize < naglos)
+            partexind = len(cexsize[fullyexmask])
+            upto = 0
+            if np.any(fullyexmask):
+                upto = int(np.max(cexsize[fullyexmask]))
+                upto += (len(cexsize) > partexind) * (naglos - upto)
+            self.asks[market_state_info["askpt"]][aglos[:upto]] -= 1
+            self.latmovs[agmos[fullyexmask]] -= exsize[fullyexmask]
+            if len(cexsize) > partexind:
+                self.latmovs[agmos[partexind]] -= (naglos - upto)
             nchanges = int(np.sum(self.latmovs==0))
             self.mosigns[self.latmovs==0] = (
                 1.0 - (
@@ -257,33 +259,39 @@ class agentens:
             self.latmovs[
                 self.latmovs > self.setup["MOvolcutoff"]
             ] = self.setup["MOvolcutoff"]
-        if blen > 0:
-            agblos = np.random.choice(
-                np.arange(0, self.setup["Nagents"], 1, dtype=int),
-                size=blen,
-                replace=False,
-                p=(
-                    self.membidLOs[market_state_info["bidpt"]]
-                    / np.sum(
-                        self.membidLOs[market_state_info["bidpt"]]
-                    )
+        if nMOsa > 0:
+            naglos = np.sum(self.membidLOs[market_state_info["bidpt"]])
+            aglos = np.random.permutation(
+                np.repeat(
+                    np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                        self.membidLOs[market_state_info["bidpt"]] > 0
+                    ],
+                    self.membidLOs[market_state_info["bidpt"]][
+                        self.membidLOs[market_state_info["bidpt"]] > 0
+                    ]
                 )
             )
-            agbmos = np.random.choice(
+            agmos = np.random.choice(
                 np.arange(0, self.setup["Nagents"], 1, dtype=int)[MOsa],
-                size=blen,
+                size=nMOsa,
                 replace=False,
             )
-            exsize = (
-                self.moaggrf[agbmos]
-                * self.membidLOs[market_state_info["bidpt"]][agblos]
-            ).astype(int)
+            exsize = (self.moaggrf[agmos] * naglos).astype(int)
             exsize[exsize==0] = 1
-            exsize[exsize > self.latmovs[agbmos]] = self.latmovs[agbmos][
-                exsize > self.latmovs[agbmos]
+            exsize[exsize > self.latmovs[agmos]] = self.latmovs[agmos][
+                exsize > self.latmovs[agmos]
             ]
-            self.bids[market_state_info["bidpt"]][agblos] -= exsize
-            self.latmovs[agbmos] -= exsize
+            cexsize = np.cumsum(exsize)
+            fullyexmask = (cexsize < naglos)
+            partexind = len(cexsize[fullyexmask])
+            upto = 0
+            if np.any(fullyexmask):
+                upto = int(np.max(cexsize[fullyexmask]))
+                upto += (len(cexsize) > partexind) * (naglos - upto)
+            self.bids[market_state_info["bidpt"]][aglos[:upto]] -= 1
+            self.latmovs[agmos[fullyexmask]] -= exsize[fullyexmask]
+            if len(cexsize) > partexind:
+                self.latmovs[agmos[partexind]] -= (naglos - upto)
             nchanges = int(np.sum(self.latmovs==0))
             self.mosigns[self.latmovs==0] = (
                 1.0 - (
