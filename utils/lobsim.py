@@ -34,6 +34,8 @@ class LOBsim:
                 + self.prices[self.setup["initbidpricetick"]]
             ) / 2.0,
             "prices" : self.prices,
+            "askptrise" : 0.0,
+            "bidptdrop" : 0.0,
         }
         self.bids = np.zeros(self.setup["Nlattice"], dtype=int)
         self.asks = np.zeros(self.setup["Nlattice"], dtype=int)
@@ -57,9 +59,17 @@ class LOBsim:
         # Recalculate the bid-ask spread and mid price
         nza, nzb = np.nonzero(self.asks), np.nonzero(self.bids)
         if len(nza[0]) > 0:
+            oldaskpt = self.market_state_info["askpt"]
             self.market_state_info["askpt"] = np.min(nza)
+            self.market_state_info["askptrise"] = (
+                1.0 * (oldaskpt > self.market_state_info["askpt"])
+            )
         if len(nzb[0]) > 0:
+            oldbidpt = self.market_state_info["bidpt"]
             self.market_state_info["bidpt"] = np.max(nzb)
+            self.market_state_info["bidptdrop"] = (
+                1.0 * (oldbidpt < self.market_state_info["bidpt"])
+            )
         self.market_state_info["midprice"] = (
             self.prices[self.market_state_info["askpt"]] 
             + self.prices[self.market_state_info["bidpt"]]

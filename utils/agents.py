@@ -58,8 +58,8 @@ class agentens:
             )
         )
         
-        # Draw the trader agressiveness factors for limit and
-        # market orders from a beta distribution 
+        # Draw the trader agressiveness factors for market
+        # and limit orders from a beta distribution 
         self.moaggrf = np.random.beta(
             self.setup["MOaggrA"], 
             self.setup["MOaggrB"],
@@ -70,20 +70,6 @@ class agentens:
             self.setup["LOaggrB"],
             size=self.setup["Nagents"],
         )
-        
-        # Draw each agents' initial speculation on best positions 
-        # from a unit-mean gamma distribution
-        gms = np.random.gamma(
-            self.setup["heterok"], 
-            1.0 / self.setup["heterok"], 
-            size=(6, self.setup["Nagents"]),
-        )
-        self.logsbids = np.ones(self.setup["Nagents"])
-        self.logsasks = np.ones(self.setup["Nagents"])
-        self.mogsbids = np.ones(self.setup["Nagents"])
-        self.mogsasks = np.ones(self.setup["Nagents"])
-        self.cogsbids = np.ones(self.setup["Nagents"])
-        self.cogsasks = np.ones(self.setup["Nagents"])
         
     def iterate(self, market_state_info : dict):
         """
@@ -104,12 +90,22 @@ class agentens:
         self.tau = np.random.exponential(1.0 / self.setup["meanHOrate"])
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
             (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
-            self.setup["meanLOratebid"] * self.logsbids,
-            self.setup["meanLOrateask"] * self.logsasks,
-            self.setup["meanMOratebid"] * self.mogsbids * (1.0 + self.mosigns),
-            self.setup["meanMOrateask"] * self.mogsasks * (1.0 - self.mosigns),
-            summembidLOs * self.setup["meanCOratebid"] * self.cogsbids,
-            summemaskLOs * self.setup["meanCOrateask"] * self.cogsasks,
+            self.setup["meanLOratebid"] * (
+                1.0 - (
+                    self.setup["LOsignalpha"]
+                    * market_state_info["bidptdrop"]
+                )
+            ),
+            self.setup["meanLOrateask"] * (
+                1.0 + (
+                    self.setup["LOsignalpha"] 
+                    * market_state_info["askptrise"]
+                )
+            ),
+            self.setup["meanMOratebid"] * (1.0 + self.mosigns),
+            self.setup["meanMOrateask"] * (1.0 - self.mosigns),
+            summembidLOs * self.setup["meanCOratebid"],
+            summemaskLOs * self.setup["meanCOrateask"],
         )
         totr = HOr + LOrb + LOra + MOrb + MOra + COrb + COra
         
@@ -150,7 +146,7 @@ class agentens:
             - np.abs(
                 market_state_info["midprice"]
                 - market_state_info["prices"]
-            ) * self.setup["LOdecay"]
+            ) * self.setup["meanLOdecay"]
         )
         midpt = float(
             market_state_info["bidpt"] + market_state_info["askpt"]
@@ -193,6 +189,12 @@ class agentens:
         # market orders unfulfilled if there are too many 
         # of them
         self.bids[:], self.asks[:] = 0, 0
+        naglosa = np.sum(self.memaskLOs[market_state_info["askpt"]])
+        naglosb = np.sum(self.membidLOs[market_state_info["bidpt"]])
+        LObvols = (self.loaggrf[LOsb] * naglosb).astype(int)
+        LOavols = (self.loaggrf[LOsa] * naglosa).astype(int)
+        LObvols[LObvols==0] = 1
+        LOavols[LOavols==0] = 1
         self.bids[
             (
                 LObpts[LOsb], 
@@ -200,7 +202,7 @@ class agentens:
                     LOsb
                 ],
             )
-        ] += 1
+        ] += LObvols
         self.asks[
             (
                 LOapts[LOsa], 
@@ -208,11 +210,9 @@ class agentens:
                     LOsa
                 ],
             )
-        ] += 1
-        nMOsa = int(np.sum(MOsa))
-        nMOsb = int(np.sum(MOsb))
+        ] += LOavols
+        nMOsa, nMOsb = int(np.sum(MOsa)), int(np.sum(MOsb))
         if nMOsb > 0:
-            naglos = np.sum(self.memaskLOs[market_state_info["askpt"]])
             aglos = np.random.permutation(
                 np.repeat(
                     np.arange(0, self.setup["Nagents"], 1, dtype=int)[
@@ -228,22 +228,22 @@ class agentens:
                 size=nMOsb,
                 replace=False,
             )
-            exsize = (self.moaggrf[agmos] * naglos).astype(int)
+            exsize = (self.moaggrf[agmos] * naglosa).astype(int)
             exsize[exsize==0] = 1
             exsize[exsize > self.latmovs[agmos]] = self.latmovs[agmos][
                 exsize > self.latmovs[agmos]
             ]
             cexsize = np.cumsum(exsize)
-            fullyexmask = (cexsize < naglos)
+            fullyexmask = (cexsize < naglosa)
             partexind = len(cexsize[fullyexmask])
             upto = 0
             if np.any(fullyexmask):
                 upto = int(np.max(cexsize[fullyexmask]))
-                upto += (len(cexsize) > partexind) * (naglos - upto)
+                upto += (len(cexsize) > partexind) * (naglosa - upto)
             self.asks[market_state_info["askpt"]][aglos[:upto]] -= 1
             self.latmovs[agmos[fullyexmask]] -= exsize[fullyexmask]
             if len(cexsize) > partexind:
-                self.latmovs[agmos[partexind]] -= (naglos - upto)
+                self.latmovs[agmos[partexind]] -= (naglosa - upto)
             nchanges = int(np.sum(self.latmovs==0))
             self.mosigns[self.latmovs==0] = (
                 1.0 - (
@@ -260,7 +260,6 @@ class agentens:
                 self.latmovs > self.setup["MOvolcutoff"]
             ] = self.setup["MOvolcutoff"]
         if nMOsa > 0:
-            naglos = np.sum(self.membidLOs[market_state_info["bidpt"]])
             aglos = np.random.permutation(
                 np.repeat(
                     np.arange(0, self.setup["Nagents"], 1, dtype=int)[
@@ -276,22 +275,22 @@ class agentens:
                 size=nMOsa,
                 replace=False,
             )
-            exsize = (self.moaggrf[agmos] * naglos).astype(int)
+            exsize = (self.moaggrf[agmos] * naglosb).astype(int)
             exsize[exsize==0] = 1
             exsize[exsize > self.latmovs[agmos]] = self.latmovs[agmos][
                 exsize > self.latmovs[agmos]
             ]
             cexsize = np.cumsum(exsize)
-            fullyexmask = (cexsize < naglos)
+            fullyexmask = (cexsize < naglosb)
             partexind = len(cexsize[fullyexmask])
             upto = 0
             if np.any(fullyexmask):
                 upto = int(np.max(cexsize[fullyexmask]))
-                upto += (len(cexsize) > partexind) * (naglos - upto)
+                upto += (len(cexsize) > partexind) * (naglosb - upto)
             self.bids[market_state_info["bidpt"]][aglos[:upto]] -= 1
             self.latmovs[agmos[fullyexmask]] -= exsize[fullyexmask]
             if len(cexsize) > partexind:
-                self.latmovs[agmos[partexind]] -= (naglos - upto)
+                self.latmovs[agmos[partexind]] -= (naglosb - upto)
             nchanges = int(np.sum(self.latmovs==0))
             self.mosigns[self.latmovs==0] = (
                 1.0 - (
