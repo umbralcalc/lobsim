@@ -15,24 +15,29 @@ class agentens:
         """
         self.setup = setup
         
+        # Calculate the total number of agents and store it
+        self.setup["Nagents"] = (
+            self.setup["Nproviders"] + self.setup["Ntakers"]
+        )
+        
         # Setup the bid and ask decision properties
         self.bids = np.zeros(
-            (self.setup["Nlattice"], self.setup["Nagents"]), 
+            (self.setup["Nlattice"], self.setup["Nproviders"]), 
             dtype=int,
         )
         self.asks = np.zeros(
-            (self.setup["Nlattice"], self.setup["Nagents"]), 
+            (self.setup["Nlattice"], self.setup["Nproviders"]), 
             dtype=int,
         )
         
         # Keep a memory of all outstanding limit orders,
         # their volumes and which agent they are associated to
         self.membidLOs = np.zeros(
-            (self.setup["Nlattice"], self.setup["Nagents"]),
+            (self.setup["Nlattice"], self.setup["Nproviders"]),
             dtype=int,
         )
         self.memaskLOs = np.zeros(
-            (self.setup["Nlattice"], self.setup["Nagents"]),
+            (self.setup["Nlattice"], self.setup["Nproviders"]),
             dtype=int,
         )
         
@@ -41,7 +46,7 @@ class agentens:
         self.latmovs = (
             np.random.pareto(
                 self.setup["MOvolpower"],
-                size=self.setup["Nagents"],
+                size=self.setup["Ntakers"],
             ) + 1.0
         ).astype(int)
         self.latmovs[
@@ -53,7 +58,7 @@ class agentens:
                 * np.random.binomial(
                     1, 
                     0.5, 
-                    size=self.setup["Nagents"]
+                    size=self.setup["Ntakers"]
                 )
             )
         )
@@ -63,12 +68,12 @@ class agentens:
         self.moaggrf = np.random.beta(
             self.setup["MOaggrA"], 
             self.setup["MOaggrB"],
-            size=self.setup["Nagents"],
+            size=self.setup["Ntakers"],
         )
         self.loaggrf = np.random.beta(
             self.setup["LOaggrA"], 
             self.setup["LOaggrB"],
-            size=self.setup["Nagents"],
+            size=self.setup["Nproviders"],
         )
         
     def iterate(self, market_state_info : dict):
@@ -89,17 +94,19 @@ class agentens:
         # agent speculation taken into account
         self.tau = np.random.exponential(1.0 / self.setup["meanHOrate"])
         HOr, LOrb, LOra, MOrb, MOra, COrb, COra = (
-            (1.0 / self.tau) * np.ones(self.setup["Nagents"]),
+            (1.0 / self.tau),
             self.setup["meanLOratebid"] * (
                 1.0 - (
                     self.setup["LOsignalpha"]
                     * market_state_info["bidptdrop"]
+                    * np.ones(self.setup["Nproviders"])
                 )
             ),
             self.setup["meanLOrateask"] * (
                 1.0 + (
                     self.setup["LOsignalpha"] 
                     * market_state_info["askptrise"]
+                    * np.ones(self.setup["Nproviders"])
                 )
             ),
             self.setup["meanMOratebid"] * (1.0 + self.mosigns),
@@ -107,40 +114,43 @@ class agentens:
             summembidLOs * self.setup["meanCOratebid"],
             summemaskLOs * self.setup["meanCOrateask"],
         )
-        totr = HOr + LOrb + LOra + MOrb + MOra + COrb + COra
+        provtotr = HOr + LOrb + LOra + COrb + COra
+        taketotr = HOr + MOrb + MOra
         
         # Draw events from the uniform distribution
         # and apply the rejection inequalities to
         # assign the agents' decisions
         evs = np.random.uniform(size=self.setup["Nagents"])
-        LOsb = (evs < LOrb / totr)
-        LOsa = (LOrb / totr <= evs) * (evs < (LOra + LOrb) / totr)
-        MOsb = (
-            ((LOra + LOrb) / totr <= evs) 
-            & (evs < (LOra + LOrb + MOrb) / totr)
+        provevs = evs[:self.setup["Nproviders"]]
+        takeevs = evs[self.setup["Nproviders"]:]
+        LOsb = (provevs < LOrb / provtotr)
+        LOsa = (
+            (LOrb / provtotr <= provevs) 
+            * (provevs < (LOra + LOrb) / provtotr)
         )
+        MOsb = (takeevs < MOrb / taketotr)
         MOsa = (
-            ((LOra + LOrb + MOrb) / totr <= evs) 
-            & (evs < (LOra + LOrb + MOrb + MOra) / totr)
+            (MOrb / taketotr <= takeevs) 
+            & (takeevs < (MOrb + MOra) / taketotr)
         )
         COsb = (
-            ((LOra + LOrb + MOrb + MOra) / totr <= evs) 
-            & (evs < (LOra + LOrb + MOrb + MOra + COrb) / totr)
+            ((LOra + LOrb) / provtotr <= provevs) 
+            & (provevs < (LOra + LOrb + COrb) / provtotr)
         )
         COsa = (
-            ((LOra + LOrb + MOrb + MOra + COrb) / totr <= evs) 
+            ((LOra + LOrb + COrb) / provtotr <= provevs) 
             & (
-                evs < (
-                    LOra + LOrb + MOrb + MOra + COrb + COra
-                ) / totr
+                provevs < (
+                    LOra + LOrb + COrb + COra
+                ) / provtotr
             )
         )
         
         # Decide on the prices for both the limit orders
         # and the order cancellations
-        boa = (LOsb | MOsb | COsb)
+        provboa = (LOsb | COsb)
         prs = np.random.uniform(
-            size=(self.setup["Nlattice"], self.setup["Nagents"])
+            size=(self.setup["Nlattice"], self.setup["Nproviders"])
         )
         dec = np.exp(
             - np.abs(
@@ -155,14 +165,14 @@ class agentens:
         midpthigh = int(np.ceil(midpt))
         LObpts = np.random.choice(
             np.arange(0, midptlow + 1, 1, dtype=int),
-            size=self.setup["Nagents"],
+            size=self.setup["Nproviders"],
             p=(
                 dec[:midptlow + 1] / np.sum(dec[:midptlow + 1])
             ),
         )
         LOapts = np.random.choice(
             np.arange(midpthigh, self.setup["Nlattice"], 1, dtype=int),
-            size=self.setup["Nagents"],
+            size=self.setup["Nproviders"],
             p=(
                 dec[midpthigh:] / np.sum(dec[midpthigh:])
             ),
@@ -171,7 +181,7 @@ class agentens:
             (
                 prs
                 * ((self.membidLOs + self.memaskLOs) > 0)
-                * boa
+                * provboa
             ), 
             axis=0,
         )
@@ -179,7 +189,7 @@ class agentens:
             (
                 prs
                 * ((self.membidLOs + self.memaskLOs) > 0)
-                * (boa==False)
+                * (provboa==False)
             ), 
             axis=0,
         )
@@ -198,7 +208,7 @@ class agentens:
         self.bids[
             (
                 LObpts[LOsb], 
-                np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                np.arange(0, self.setup["Nproviders"], 1, dtype=int)[
                     LOsb
                 ],
             )
@@ -206,7 +216,7 @@ class agentens:
         self.asks[
             (
                 LOapts[LOsa], 
-                np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                np.arange(0, self.setup["Nproviders"], 1, dtype=int)[
                     LOsa
                 ],
             )
@@ -215,7 +225,7 @@ class agentens:
         if nMOsb > 0:
             aglos = np.random.permutation(
                 np.repeat(
-                    np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                    np.arange(0, self.setup["Nproviders"], 1, dtype=int)[
                         self.memaskLOs[market_state_info["askpt"]] > 0
                     ],
                     self.memaskLOs[market_state_info["askpt"]][
@@ -224,7 +234,7 @@ class agentens:
                 )
             )
             agmos = np.random.choice(
-                np.arange(0, self.setup["Nagents"], 1, dtype=int)[MOsb],
+                np.arange(0, self.setup["Ntakers"], 1, dtype=int)[MOsb],
                 size=nMOsb,
                 replace=False,
             )
@@ -262,7 +272,7 @@ class agentens:
         if nMOsa > 0:
             aglos = np.random.permutation(
                 np.repeat(
-                    np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                    np.arange(0, self.setup["Nproviders"], 1, dtype=int)[
                         self.membidLOs[market_state_info["bidpt"]] > 0
                     ],
                     self.membidLOs[market_state_info["bidpt"]][
@@ -271,7 +281,7 @@ class agentens:
                 )
             )
             agmos = np.random.choice(
-                np.arange(0, self.setup["Nagents"], 1, dtype=int)[MOsa],
+                np.arange(0, self.setup["Ntakers"], 1, dtype=int)[MOsa],
                 size=nMOsa,
                 replace=False,
             )
@@ -312,15 +322,15 @@ class agentens:
         nbidlos = np.sum(self.membidLOs + self.bids, axis=1)
         nasklos = np.sum(self.memaskLOs + self.asks, axis=1)
         cbids = np.zeros(
-            (self.setup["Nlattice"], self.setup["Nagents"]), 
+            (self.setup["Nlattice"], self.setup["Nproviders"]), 
         )
         casks = np.zeros(
-            (self.setup["Nlattice"], self.setup["Nagents"]), 
+            (self.setup["Nlattice"], self.setup["Nproviders"]), 
         )
         cbids[
             (
                 CObpts[COsb], 
-                np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                np.arange(0, self.setup["Nproviders"], 1, dtype=int)[
                     COsb
                 ],
             )
@@ -328,7 +338,7 @@ class agentens:
         casks[
             (
                 COapts[COsa], 
-                np.arange(0, self.setup["Nagents"], 1, dtype=int)[
+                np.arange(0, self.setup["Nproviders"], 1, dtype=int)[
                     COsa
                 ],
             )
@@ -341,11 +351,11 @@ class agentens:
                     np.sum(cbids > 0, axis=1), 
                     nbidlos,
                 ),
-                np.ones(self.setup["Nagents"]),
+                np.ones(self.setup["Nproviders"]),
                 axes=0,
             ) <= np.tensordot(
                 np.ones(self.setup["Nlattice"]),
-                np.arange(0, self.setup["Nagents"], 1),
+                np.arange(0, self.setup["Nproviders"], 1),
                 axes=0,
             )
         )
@@ -355,11 +365,11 @@ class agentens:
                     np.sum(casks > 0, axis=1), 
                     nasklos,
                 ),
-                np.ones(self.setup["Nagents"]),
+                np.ones(self.setup["Nproviders"]),
                 axes=0,
             ) <= np.tensordot(
                 np.ones(self.setup["Nlattice"]),
-                np.arange(0, self.setup["Nagents"], 1),
+                np.arange(0, self.setup["Nproviders"], 1),
                 axes=0,
             )
         )
