@@ -14,6 +14,7 @@ class agentens:
         
         """
         self.setup = setup
+        self.tau = None
         
         # Calculate the total number of agents and store it
         self.setup["Nagents"] = (
@@ -381,4 +382,3 @@ class agentens:
         # Update the agent-specific limit order memory
         self.membidLOs += self.bids
         self.memaskLOs += self.asks
-    
