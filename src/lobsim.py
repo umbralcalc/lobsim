@@ -1,6 +1,6 @@
 import numpy as np
 
-class LOBsim:
+class lobsim:
     
     def __init__(self, setup : dict, agentens=None):
         """
