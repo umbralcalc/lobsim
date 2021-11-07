@@ -1,4 +1,5 @@
 import numpy as np
+import pandas as pd
 from lobsim import lobsim
 from mlsolver import mlsolver
 
@@ -31,7 +32,7 @@ class lobsem(lobsim):
         midps = []
         while t < tend:
             self.iterate()
-            t = los.time
+            t = self.time
             midps.append([t, self.market_state_info["midprice"]])
 
         # Create time series using the mid price output data
