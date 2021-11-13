@@ -18,16 +18,25 @@ class lobsem(lobsim):
         agentens
             The class for the ensemble of agents
             whose behaviours you want to emulate.
-        
+
         """
         super().__init__(setup, agentens=agentens)
 
-    def train_queues(self):
-        """Method to train the queue emulation approach
-        using Hawkes kernel-based transition probabilities."""
+    def train_queues(
+        self, 
+        burn_in : float = 50.0,
+    ):
+        """
+        Method to train the queue emulation approach
+        using Hawkes kernel-based transition probabilities.
+
+        Keywords:
+        burn_in
+            The burn-in period of the LOB simulation in time.
+        
+        """
 
         # Iterate the LOB over time
-        burn_in = 50.0
         tend, t = 5000.0, 0.0
         midps = []
         while t < tend:
@@ -38,5 +47,4 @@ class lobsem(lobsim):
         # Create time series using the mid price output data
         df = pd.DataFrame(midps, columns=['Time', 'Mid price'])
         df = df[df.Time > burn_in]
-        
-    
+
